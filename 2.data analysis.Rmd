@@ -1,0 +1,333 @@
+---
+title: "2.data analysis"
+author: "Shuchen Dong"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, 
+                      message = FALSE, 
+                      warning = FALSE, 
+                      fig.width = 6, 
+                      fig.height = 4)
+
+library(tidyverse)
+library(knitr)
+library(ggplot2)
+library(gtsummary)
+library(lme4)
+```
+
+```{r}
+# data import
+data_prac = read_csv("data_prac.csv")
+colnames(data_prac)
+
+# missing data
+colSums(is.na(data_prac))
+
+# suicide_attempt distribution
+table(data_prac$suicide_attempt)
+# physical_activity1_y distribution
+table(data_prac$physical_activity)
+# covariate
+table(data_prac$race_ethnicity)
+table(data_prac$sex)
+summary(data_prac$interview_age)
+
+data = data_prac |>
+  rename(id = src_subject_id,
+         sa = suicide_attempt,
+         pa = physical_activity) |> 
+  mutate(eventname = factor(eventname, 
+                            levels = c("baseline_year_1_arm_1",
+                                       "1_year_follow_up_y_arm_1", 
+                                       "2_year_follow_up_y_arm_1", 
+                                       "3_year_follow_up_y_arm_1", 
+                                       "4_year_follow_up_y_arm_1")))
+
+#summary(data)
+str(data)
+```
+
+```{r}
+data = data %>%
+  group_by(id) %>%
+  mutate(
+    sa = if_else(eventname %in% c("3_year_follow_up_y_arm_1", "4_year_follow_up_y_arm_1"),
+                 sa[eventname == "baseline_year_1_arm_1"], sa),
+    pa = if_else(eventname %in% c("1_year_follow_up_y_arm_1"), 
+                 pa[eventname == "baseline_year_1_arm_1"], pa),
+    income = if_else(eventname %in% c("1_year_follow_up_y_arm_1", "2_year_follow_up_y_arm_1", "3_year_follow_up_y_arm_1", "4_year_follow_up_y_arm_1"), 
+                 income[eventname == "baseline_year_1_arm_1"], income),
+    sex = if_else(eventname %in% c("1_year_follow_up_y_arm_1", "2_year_follow_up_y_arm_1", "3_year_follow_up_y_arm_1", "4_year_follow_up_y_arm_1"), 
+                 sex[eventname == "baseline_year_1_arm_1"], sex),
+    education = if_else(eventname %in% c("1_year_follow_up_y_arm_1", "2_year_follow_up_y_arm_1", "3_year_follow_up_y_arm_1", "4_year_follow_up_y_arm_1"), 
+                 education[eventname == "baseline_year_1_arm_1"], education),
+    race_ethnicity = if_else(eventname %in% c("3_year_follow_up_y_arm_1"), 
+                 race_ethnicity[eventname == "baseline_year_1_arm_1"], race_ethnicity),
+    rel_relationship = if_else(eventname %in% c("3_year_follow_up_y_arm_1"), 
+                 rel_relationship[eventname == "baseline_year_1_arm_1"], rel_relationship),
+    race_ethnicity = if_else(eventname %in% c("3_year_follow_up_y_arm_1"), 
+                 race_ethnicity[eventname == "baseline_year_1_arm_1"], race_ethnicity),
+    white = if_else(eventname %in% c("3_year_follow_up_y_arm_1"), 
+                 white[eventname == "baseline_year_1_arm_1"], white),
+    black = if_else(eventname %in% c("3_year_follow_up_y_arm_1"), 
+                 black[eventname == "baseline_year_1_arm_1"], black),
+    hispanic = if_else(eventname %in% c("3_year_follow_up_y_arm_1"), 
+                 hispanic[eventname == "baseline_year_1_arm_1"], hispanic),
+    asian = if_else(eventname %in% c("3_year_follow_up_y_arm_1"), 
+                 asian[eventname == "baseline_year_1_arm_1"], asian),
+    other = if_else(eventname %in% c("3_year_follow_up_y_arm_1"), 
+                 other[eventname == "baseline_year_1_arm_1"], other),
+    twin = if_else(eventname %in% c("3_year_follow_up_y_arm_1"), 
+                 twin[eventname == "baseline_year_1_arm_1"], twin),
+  ) %>%
+  ungroup()
+
+```
+
+```{r, include=FALSE}
+# handle missing data
+#1.sa
+# sa_mean = data |>
+#   filter(eventname %in% c("1_year_follow_up_y_arm_1", 
+#                           "2_year_follow_up_y_arm_1", 
+#                           "baseline_year_1_arm_1")) |>
+#   summarise(mean_sa = mean(sa)) |>
+#   pull(mean_sa)
+# 
+# data = data |>
+#   mutate(sa = if_else(eventname %in% c("3_year_follow_up_y_arm_1", 
+#                                        "4_year_follow_up_y_arm_1"), 
+#                       round(sa_mean), 
+#                       sa))
+
+#2.pa
+# pa_mean = data |>
+#   filter(eventname %in% c("baseline_year_1_arm_1", 
+#                           "2_year_follow_up_y_arm_1", 
+#                           "3_year_follow_up_y_arm_1", 
+#                           "4_year_follow_up_y_arm_1")) |>
+#   summarise(mean_pa = mean(pa)) |>
+#   pull(mean_pa)
+# 
+# data = data |>
+#   mutate(pa = if_else(eventname == "1_year_follow_up_y_arm_1", 
+#                       round(pa_mean), 
+#                       pa))
+# 
+# #3.income, 4.sex, 5.education
+# col3 = c("income", "sex", "education")
+# 
+# data = data |> 
+#   group_by(id) |> 
+#   mutate(across(all_of(col3), 
+#                 ~ if_else(eventname %in% c("1_year_follow_up_y_arm_1",
+#                                            "2_year_follow_up_y_arm_1", 
+#                                            "3_year_follow_up_y_arm_1", 
+#                                            "4_year_follow_up_y_arm_1"), 
+#                           first(.[eventname == "baseline_year_1_arm_1"]), 
+#                           .))) |> 
+#   ungroup()
+# 
+# #6.race_ethnicity, 7.rel_relationship, 8.white, black, hispanic, asian, other, twin
+# col8 = c("race_ethnicity", "rel_relationship", 
+#          "white", "black", "hispanic", "asian", "other", "twin")
+# 
+# data = data |>
+#   mutate(across(all_of(col8), 
+#                 ~ if_else(eventname == "3_year_follow_up_y_arm_1", 
+#                           mean(.[eventname %in% c("baseline_year_1_arm_1", 
+#                                                   "1_year_follow_up_y_arm_1", 
+#                                                   "2_year_follow_up_y_arm_1", 
+#                                                   "4_year_follow_up_y_arm_1")], na.rm = TRUE), 
+#                           .)))
+```
+
+
+```{r}
+# summary table
+data |>
+  select(eventname, sa, pa, income, sex, interview_age, education, race_ethnicity, rel_relationship, white, black, hispanic, asian, other, twin) |>
+  tbl_summary(by = eventname, # Group summary statistics by 'eventname' 
+              statistic = list(all_continuous() ~ "{mean} ({sd})"), # Display mean and standard deviation for all continuous variables
+              #missing = "no", # Exclude missing values
+              digits = everything() ~ 2) # Round all numeric values to 2 decimal places
+
+data |>
+  select(eventname, aces_numeric, aces_cat, aces_cat_dummy, aces_classic_numeric, aces_classic_cat, aces_classic_cat_dummy) |>
+  tbl_summary(by=eventname, # Group summary statistics by 'eventname' 
+              statistic = list(all_continuous() ~ "{mean} ({sd})"), # Display mean and standard deviation for all continuous variables
+              missing = "no", # Exclude missing values
+              digits = everything() ~ 2) # Round all numeric values to 2 decimal places
+```
+
+
+```{r, include=FALSE}
+# data = data |> 
+#   mutate(# sa: 0, 1
+#        sa = as.factor(data$sa),
+#        # 0-7: Number of days corresponding to physical activity
+#        #pa = as.factor(data$pa), 
+#        # race factor
+#        race_ethnicity = as.factor(race_ethnicity), 
+#        white = if_else(race_ethnicity == "1", 1, 0), 
+#        black = if_else(race_ethnicity == "2", 1, 0), 
+#        hispanic = if_else(race_ethnicity == "3", 1, 0), 
+#        asian = if_else(race_ethnicity == "4", 1, 0), 
+#        other = if_else(race_ethnicity == "5", 1, 0)
+# )
+# 
+# data |> skimr::skim()
+```
+
+# EDA
+
+```{r}
+# General Distributions
+# overall distribution
+# bar sa 
+sa_distribution = 
+  data |>
+  ggplot(aes(x = sa)) +
+  geom_bar(fill = "skyblue") +
+  labs(
+    x = "Suicide Attempt (sa)",
+    y = "Count",
+    title = "Distribution of Suicide Attempt (sa)"
+  )
+
+# bar pa
+pa_distribution = 
+  data |>
+  ggplot(aes(x = pa)) +
+  geom_bar(fill = "orange") +
+  labs(
+    x = "Physical Activity (pa)",
+    y = "Count",
+    title = "Distribution of Physical Activity (pa)"
+  )
+
+ggarrange(sa_distribution, pa_distribution, 
+          labels = c("A", "B"), ncol = 1, nrow = 2) |>
+  annotate_figure(
+    top = text_grob("Distributions of sa and pa Variables"))
+
+ggplot(data, aes(x = pa, fill = sa)) +
+  geom_bar(position = "dodge") +
+  labs(title = "Suicide Attempt by Physical Activity", x = "Physical Activity (Days)", y = "Count")
+
+```
+
+```{r}
+model = glm(sa ~ pa + race_ethnicity + 
+              sex + income + interview_age + site +
+              education_mother + education_father + interview_age + interview_date
+            + , 
+             data = data, 
+             family = binomial(link = "logit"))
+
+pred = ggpredict(model, terms = "pa")
+plot(pred) +
+  labs(title = "Predicted Probability of Suicide Attempt by Physical Activity",
+       x = "Physical Activity (Days)", y = "Predicted Probability")
+```
+
+p value
+OR
+
+mem: 
+family structer, site
+
+# check
+interview_date
+
+```{r}
+# check multicollinearity
+library(car)
+vif(model)
+
+# residual analysis
+plot(model)
+```
+
+
+# Interaction--truma
+
+# Mixed effects model
+Model Structure
+ 1.Dependent Variable: Each model has a unique dependent variable, such as 
+ 2. Fixed Effects:
+– 2.1 Time: Interaction term
+– 2.2 Demographic Variables: Race/ethnicity: White, Black, Hispanic, Asian and family factors: income, education.
+– 2.3 Child Characteristics: Gender (sex) and twin status (twin).
+ 3. Random Effects:
+– (1 | subjectkey): Random intercept for each subject to account for repeated measures within
+individuals.
+– (1 | site): Random intercept for site to account for differences across research locations.
+– (1 | family): Random intercept for family to account for familial dependencies.
+
+
+```{r}
+# mixed effect model
+# random effect
+# (1|site_id_l/ rel_family_id)
+# 
+# lmer(
+#   data = data2,
+#   lhca1headMD ~ demo_sex_v2 + demo_brthdat_v2 + PC1 + PC2 + PC3 + PC4 +
+#     PC5 + PC6 + PC7 + PC8 + PC9 + PC10 + meanmotion + (1 | site_id_l / rel_family_id))
+
+# Fit a linear mixed-effects model using the lmer function
+model = lmer(
+  sa ~ pa + # Fixed effects: Interaction between Time_num and PMQ
+    (1 | site) + # Random intercept for site (accounts for clustering at different sites)
+    (1 | family) + # Random intercept for family (accounts for familial dependencies)
+    white + black + hispanic + asian + other +  # Fixed effects: Demographic variables (race/ethnicity)
+    sex + # Fixed effect: Gender
+    income + # Fixed effect: Household income
+    education + # Fixed effect: education level
+    twin # Fixed effect: Twin status
+    # aces_numeric,
+  data = data)
+
+# Summarizing the Model (jtools::summ)
+jtools::summ(model, confint = TRUE, digits = 5)
+```
+
+Interpretation：
+
+1.Fixed Effects：
+- (Intercept): The p-value is 0.00244, which is less than 0.05, indicating that the baseline level of the model is significant.
+- pa: The p-value is 0.63493, which is greater than 0.05, suggesting this variable does not significantly affect sa.
+- income: The p-value is 0.00000 (highly significant), meaning income has a significant negative effect on sa.
+- aces_numeric: The p-value is 0.00000 (highly significant), indicating that adverse childhood experiences (ACES) have a significant positive effect on sa.
+- Other variables (e.g., sex, white, black, twin, etc.): Their p-values are all greater than 0.05, suggesting they do not significantly affect sa.
+
+2. Random Effects
+
+2.1 Std. Dev.: The standard deviation of random effects indicates the variability of observations within each level of a grouping factor.
+- family has a standard deviation of 0.05474, showing that family contributes to the variability in sa.
+- site has a standard deviation of 0.00106, which is very small, suggesting site contributes minimally to the variability.
+- Residual has a standard deviation of 0.09154, representing unexplained variability.
+
+2.2 ICC (Intraclass Correlation Coefficient): Indicates the proportion of total variance attributable to each grouping factor.
+- family has an ICC of 0.26335, meaning 26.3% of the total variance is due to differences between families.
+site has an ICC of 0.00010, suggesting that site has a negligible influence.
+
+**Summary**
+- Significant Variables:
+income: An increase in income significantly decreases sa.
+aces_numeric: An increase in adverse childhood experiences significantly increases sa.
+
+- Non-Significant Variables: Variables such as pa, sex, and white do not significantly affect sa.
+Random Effects:
+Family has a substantial impact on sa (26.3% of total variance).
+Site has a negligible impact on sa.
+
+**Improvement**
+The output shows that the effect of pa on sa is not significant. This might be because, during the handling of missing data, I imputed missing values across different years within an id using baseline values. Next, I plan to test the model using the original dataset without imputing the missing values, carefully inspect the dataset, and then fit the mixed-effects model again.
+
+
+

@@ -1,0 +1,275 @@
+---
+title: "2.data analysis"
+author: "Shuchen Dong"
+output:
+  pdf_document:
+    latex_engine: xelatex
+editor_options:
+  markdown:
+    wrap: 72
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, 
+                      message = FALSE, 
+                      warning = FALSE, 
+                      fig.width = 6, 
+                      fig.height = 4)
+
+library(tidyverse)
+library(knitr)
+library(ggplot2)
+library(gtsummary)
+library(lme4)
+```
+
+'race_ethnicity': Race Ethnicity (Child); 1 = White; 2 = Black; 3 = Hispanic; 4 = Asian; 5 = Other.
+
+'rel_relationship':	Relationship of the participant in his or her family; 0 = single; 1 = sibling; 2 = twin; 3 = triplet
+
+- Associations between baseline physical activity and follow up suicide measures. 
+- Interaction between baseline physical activity and baseline numeric aces variable on follow up suicide measures outcomes.
+- Research how to do the trajectories.
+
+
+## save baseline data
+
+```{r}
+# data import
+data_prac = read_csv("data_prac.csv")
+
+data_baseline = data_prac |>
+  filter(eventname == "baseline_year_1_arm_1") |> 
+  rename(id = src_subject_id,
+         sa = suicide_attempt,
+         pa = physical_activity) |> 
+  select(-interview_date) |> 
+  mutate(race_ethnicity = factor(race_ethnicity, levels = c(1, 2, 3, 4, 5), 
+                                 labels = c("White", "Black", "Hispanic", "Asian", "Other")),
+         rel_relationship = factor(rel_relationship, levels = c(0, 1, 2, 3), 
+                                   labels = c("Single", "Sibling", "Twin", "Triplet")),
+         sa = as.factor(sa))
+
+
+colnames(data_baseline)
+
+#colSums(is.na(data_baseline))
+#write.csv(data_baseline, file = "data_baseline.csv", row.names = FALSE)
+
+#summary(data)
+str(data_baseline)
+```
+
+
+## sa--pa
+
+```{r}
+model_logit = glm(sa ~ pa + income + sex + interview_age + education + 
+                      site + race_ethnicity + family + rel_relationship,
+                   data = data_baseline, 
+                   family = binomial)
+
+summary(model_logit)
+
+#pa                8.608e-02  3.985e-02   2.160  0.03075 * 
+```
+
+- Income significantly reduces SA (p = 5.87e-05), indicating that the higher the income, the lower the risk of suicide.
+- Aces is extremely significant (p = 7.87e-06), indicating that childhood adversity experience (ACEs) is a strong predictor of SA.
+
+```{r}
+model_logit = glm(sa ~ pa + income + sex + interview_age + education + 
+                      race_ethnicity + family + rel_relationship + aces_numeric, 
+                   data = data_baseline, 
+                   family = binomial)
+
+summary(model_logit)
+#pa                8.387e-02  3.956e-02   2.120 0.034007 * 
+
+# OR & CI
+exp(cbind(OR = coef(model_logit), confint(model_logit)))
+#get rid of rel relationship aces
+#lmer
+```
+
+# mixed effect model
+
+```{r}
+data_baseline$sa = as.numeric(as.character(data_baseline$sa))
+names(data_baseline)
+#sum(is.na(data_baseline$sa))
+
+model = lmer(
+  sa ~ pa +
+    (1 | site/family) +
+    income + sex + interview_age + education + 
+    race_ethnicity,
+  data = data_baseline
+)
+
+summary(model)
+
+model2 = glmer(
+  sa ~ pa +
+    (1 | site/family) +
+    income + sex + interview_age + education + 
+    race_ethnicity,
+  data = data_baseline, "binomial"
+)
+
+summary(model2)
+
+cor_matrix = cor(data_baseline[, c("pa", "white", "black", "hispanic", "asian", "other", 
+                                    "sex", "income", "education", "twin", "aces_numeric")], use = "pairwise.complete.obs")
+print(cor_matrix)
+
+library(car)
+vif_values <- vif(lm(sa ~ pa + white + black + hispanic + asian + other + 
+                      sex + income + education + twin + aces_numeric, 
+                      data = data_baseline))
+print(vif_values)
+```
+
+## pa * aces_numeric
+
+```{r}
+model_interact = glm(sa ~ pa * aces_numeric + income + sex + interview_age + 
+                         education + race_ethnicity + family + rel_relationship, 
+                      data = data_baseline, 
+                      family = binomial)
+
+summary(model_interact)
+
+# OR & CI
+exp(cbind(OR = coef(model_interact), confint(model_interact)))
+```
+
+**Interpretation**:
+
+1. PA and SA:
+PA is positively associated with SA; a higher PA level corresponds to a significantly higher risk of suicide attempt (OR = exp(0.171) ≈ 1.19).
+PA has a significant positive association with SA (p = 0.0164), suggesting that individuals with higher PA levels have a higher likelihood of attempting suicide.
+
+Possible explanations:
+Exercise-related stress or overtraining.
+PA as a coping mechanism, indicating underlying psychological distress.
+
+2. ACEs and SA:
+ACEs significantly increase the risk of SA (OR = exp(0.350) ≈ 1.42), meaning that each additional ACE increases the odds of a suicide attempt by 42%.
+ACEs have a strong and highly significant positive association with SA (p < 0.001), meaning individuals with more childhood adversity are at a significantly higher risk of attempting suicide.
+
+3. Income as a Protective Factor:
+Higher income is associated with a lower risk of SA (OR = exp(-0.363) ≈ 0.70), reducing the risk by about 30%.
+Higher income significantly reduces SA risk (p < 0.001), likely due to better access to mental health resources and overall stability.
+
+4. Interaction (PA × ACEs) Not Significant:
+- The interaction term is not significant (p = 0.1425), meaning that PA’s effect on SA is relatively consistent across different levels of ACEs.
+- This suggests that PA is an independent risk factor for SA, regardless of childhood adversity.
+
+5. Intercept:
+The baseline risk of suicide attempt (SA) when all predictors are zero is significantly low.
+
+
+## pa trajectories
+
+Summarize Key Variables
+- 1.Baseline sa,
+- 2.Time (in years),
+- 3.pa over time
+
+```{r}
+data = data_prac |>
+  rename(id = src_subject_id,
+         sa = suicide_attempt,
+         pa = physical_activity) |> 
+  select(-interview_date) |> 
+  mutate(eventname = factor(eventname, 
+                            levels = c("baseline_year_1_arm_1",
+                                       "1_year_follow_up_y_arm_1", 
+                                       "2_year_follow_up_y_arm_1", 
+                                       "3_year_follow_up_y_arm_1", 
+                                       "4_year_follow_up_y_arm_1"))) |>
+  filter(eventname != "4_year_follow_up_y_arm_1") |>
+  group_by(id) |>
+  mutate(sa_base = first(sa[eventname == "baseline_year_1_arm_1"], default = NA)) |>
+  ungroup()
+
+#summary(data)
+str(data)
+```
+
+
+```{r}
+# Group data by individual (id), and find each individual's initial sa
+# The total number of unique individuals
+K = length(unique(data$id))
+
+# Create a frequency table showing how many times(Var1) each id appears
+table(table(data$id)) |>
+  knitr::kable()
+```
+In the frequency table, Var1 represents the number of times each unique id appears in the dataset.
+
+
+```{r}
+statistics in the graph
+make 4 group in the same graph
+  
+# Plot individual PA trajectories over time
+ggplot(data = data, aes(
+  x = eventname,
+  y = pa,
+  group = id,    # Color by individual ID
+  #color = id
+  )) +
+  geom_point(size = .5, alpha = .5) +
+  geom_line(linewidth = .5, alpha = .5) +
+  labs(title = "Individual Time Trajectory of PA", x = "Follow-up Year", y = "PA") +
+  #scale_colour_gradientn(colours = rainbow(5)) +
+  theme_bw()
+```
+
+```{r}
+ggplot(data = data, aes(
+  x = eventname,
+  y = pa,
+  group = id,
+  #color = vload
+)) +
+  geom_smooth(
+    method = "lm",
+    se = FALSE,
+    size = .2,
+    alpha = .5
+  ) +
+  labs(title = "Individual Fitted Lines", x = "Follow-up Year", y = "PA") +
+  #scale_colour_gradientn(colours = rainbow(5)) +
+  theme_bw()
+```
+
+pa: During the past 7 days, on how many days were you physically active for a total of at least 60 minutes per day? (Add up all the time you spent in any kind of physical activity that increased your heart rate and made you breathe hard some of the time)
+0 = 0 days; 1 = 1 day; 2 = 2 days; 3 = 3 days; 4 = 4 days; 5 = 5 days; 6 = 6 days; 7 = 7 days
+
+```{r}
+# Create a histogram to show the distribution of pa values
+# hist(unique(data$pa), 1, # Number of bins
+#      main = "Histogram of pa", xlab = "pa")
+
+hist(data$pa,
+     breaks = seq(-0.5, 7.5, by = 1),  # Ensures each integer gets its own bin
+     col = "skyblue",
+     main = "Distribution of Physical Activity (PA)",
+     xlab = "Number of Days Physically Active", 
+     ylab = "Frequency", 
+     xaxt = "n")  # Remove default x-axis ticks
+
+axis(1, at = 0:7, labels = 0:7)  # Custom x-axis labels for clarity
+```
+
+
+life course reserch visual toolkit
+an overview of longitudinal trajactory theory
+
+
+
+

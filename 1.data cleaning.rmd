@@ -1,0 +1,560 @@
+---
+title: "1.data cleaning"
+author: "Shuchen Dong (sd3731)"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, 
+                      message = FALSE, 
+                      warning = FALSE, 
+                      fig.width = 6, 
+                      fig.height = 4)
+
+library(tidyverse)
+library(knitr)
+library(ggplot2)
+library(readxl)
+library(janitor)
+library(forcats)
+library(plotly)
+library(ggpubr)
+library(ggeffects)
+library(gtsummary)
+```
+
+```{r}
+# summary table
+abcd_aces_2024 |>
+  select(-src_subject_id) |> 
+  tbl_summary(by = eventname, # Group summary statistics by 'eventname' 
+              statistic = list(all_continuous() ~ "{mean} ({sd})"), # Display mean and standard deviation for all continuous variables
+              #missing = "no", # Exclude missing values
+              digits = everything() ~ 2) # Round all numeric values to 2 decimal places
+
+colnames(abcd_aces_2024)
+```
+
+# Data cleaning
+
+## ksads_suicidal_raw_1111_t	Have you made any preparations for killing yourself?
+```{r, echo = FALSE}
+# si data import
+mh_y_ksads_si = read_csv("abcd_data/mh_y_ksads_si.csv")
+# 
+data_si = mh_y_ksads_si |>
+  #filter (eventname == "baseline_year_1_arm_1") |>
+  select(src_subject_id,
+         eventname,
+         ksads_suicidal_raw_824_t, #Was there ever a time in the past when you often wished you were dead or thought you would be better off dead?
+         #ksads_suicidal_raw_825_t  #Was there ever another time in the past when you often wished you were dead or thought you would be better off dead?
+  ) |>
+  mutate(
+    ksads_suicidal_raw_824_t = factor( ksads_suicidal_raw_824_t, levels = c(0, 1))
+    #ksads_suicidal_raw_825_t = factor(ksads_suicidal_raw_825_t, levels = c(0, 1))
+    ) |>
+  na.omit(data_si$ksads_suicidal_raw_824_t)  #-1129
+
+# #0=No; 1=Yes
+# #colSums(is.na(data_si))
+# summary(data_si)
+```
+
+## 1. y(SA): mh_y_ksads_ss (ksads_import_id_t) follow-2year
+
+```{r}
+# ss data import
+# include active diagnose
+mh_y_ksads_ss = read_csv("abcd_data/mh_y_ksads_ss.csv")
+
+#idiation
+data_ss = mh_y_ksads_ss |>
+  #filter (eventname == "baseline_year_1_arm_1") |>
+  select(src_subject_id, 
+         eventname,
+         #ksads_import_id_t,  #Unique ID provided by KSADS for dataset
+         ksads_23_964_t,  #Diagnosis - SuicideAttemptPresent
+         #ksads
+         ksads_23_965_t,  #Diagnosis - SuicideAttemptPast
+         ) |> 
+  mutate(across(starts_with("ksads"), ~ if_else(is.na(.), first(.[!is.na(.)]), .))) |> 
+  ungroup() |> 
+  mutate(
+    ksads_23_964_t = factor(ksads_23_964_t, levels = c(0, 1)),
+    ksads_23_965_t = factor(ksads_23_965_t, levels = c(0, 1)),
+    suicide_attempt = if_else(ksads_23_964_t == 1 | ksads_23_965_t == 1, 1, 0)) |> 
+  arrange(src_subject_id)
+
+data_ss = data_ss |> 
+  select(src_subject_id, 
+         eventname,
+         suicide_attempt)
+
+unique(data_ss$eventname)   #baseline, 1,2,3,4
+table(data_ss$eventname)   
+# 1_year_follow_up_y_arm_1 2_year_follow_up_y_arm_1 3_year_follow_up_y_arm_1 
+#                    11095                    10883                    10326 
+# 4_year_follow_up_y_arm_1    baseline_year_1_arm_1 
+#                     4674                    11812 
+colSums(is.na(data_ss)) #b 16
+summary(data_ss)
+```
+
+
+
+## 2. x: physical_activity1_y baseline
+
+```{r}
+ #SAIQ
+##good: physical_activity1_y: During the past 7 days, on how many days were you physically active for a total of at least 60 minutes per day? (Add up all the time you spent in any kind of physical activity that increased your heart rate and made you breathe hard some of the time)
+#0 = 0 days; 1 = 1 day; 2 = 2 days; 3 = 3 days; 4 = 4 days; 5 = 5 days; 6 = 6 days; 7 = 7 days
+
+# physical_activity2_y: On how many of the past 7 days did you do exercises to strengthen or tone your muscles, such as push-ups, sit-ups, or weight lifting?
+#1 = 0 days; 2 = 1 day; 3 = 2 days; 4 = 3 days; 5 = 4 days; 6 = 5 days; 7 = 6 days; 8 = 7 days
+
+#physical_activity5_y: In an average week when you are in school, on how many days do you go to physical education (PE) class?	
+#0 = 0 days; 1 = 1 day; 2 = 2 days; 3 = 3 days; 4 = 4 days; 5 = 5 days
+
+# what kind of sport
+
+# physical data import
+ph_y_yrb = read_csv("abcd_data/ph_y_yrb.csv") 
+
+data_ph = ph_y_yrb |> 
+  #filter (eventname == "baseline_year_1_arm_1") |>
+  select(src_subject_id, 
+         eventname,
+         physical_activity1_y) |> 
+  mutate(physical_activity1_y = if_else(is.na(physical_activity1_y), first(physical_activity1_y[!is.na(physical_activity1_y)]), physical_activity1_y)) |> 
+  ungroup()
+
+colSums(is.na(data_ph))   #5(b1)
+# unique(data_ph$eventname)
+# b234
+```
+
+```{r}
+data = data_ss |>
+  left_join(data_ph |> 
+              select(src_subject_id, eventname, physical_activity1_y),
+            by = c("src_subject_id", "eventname")) |> 
+  mutate(physical_activity1_y = if_else(is.na(physical_activity1_y), first(physical_activity1_y[!is.na(physical_activity1_y)]), physical_activity1_y)) |> 
+  ungroup()
+
+colSums(is.na(data))
+```
+
+
+
+```{r}
+#cvd_y_fitb_qtn	
+#fitpo_physical_activity	
+#I have been physically active:	1=much less than usual ; 2=less than usual ; 3=the same as usual ; 4=rather more than usual ; 5=much more than usual
+
+#2020 year
+# cvd_y_fitb_qtn = read_csv("abcd_data/cvd_y_fitb_qtn.csv")
+```
+
+
+## 3. covariance: controlling for race, family(twin), site_id, education, income, sex, interview_age, interview_date, 
+                  age, gender, income, parent social, education of parients
+
+### race, family
+
+'race_ethnicity': Race Ethnicity (Child); 1 = White; 2 = Black; 3 = Hispanic; 4 = Asian; 5 = Other.
+
+'rel_family_id': Family ID (participants belonging to the same family share a family ID). The family ID is autocalculated and will change after the addition/removal of subjects from the ABCD study. Family IDs will, therefore, differ between data release.
+
+'rel_relationship':	Relationship of the participant in his or her family; 0 = single; 1 = sibling; 2 = twin; 3 = triplet
+
+```{r}
+# import data1
+abcd_p_demo = read_csv("data_abcd5/abcd_p_demo.csv")|> 
+  select(src_subject_id,
+         race_ethnicity) |> 
+  mutate(race_ethnicity = if_else(is.na(race_ethnicity), first(race_ethnicity[!is.na(race_ethnicity)]), race_ethnicity))|> 
+  ungroup()
+
+gen_y_pihat = read_csv("data_abcd5/gen_y_pihat.csv") |> 
+  select(src_subject_id,       #baseline
+         rel_family_id,
+         rel_relationship)
+#rm(list=c("abcd_p_demo", "gen_y_pihat"))
+
+# combine
+#Random effects
+#race_ethnicity
+family = abcd_p_demo |> 
+  inner_join(gen_y_pihat, 
+             by = c("src_subject_id"))
+
+family = family |> 
+  rename(family = rel_family_id) |>
+  mutate(White = if_else(race_ethnicity == "1",true = 1,false = 0)) |>
+  mutate(Black = if_else(race_ethnicity == "2",true = 1,false = 0)) |>
+  mutate(Hispanic = if_else(race_ethnicity == "3",true = 1,false = 0)) |>
+  mutate(Asian = if_else(race_ethnicity == "4",true = 1,false = 0)) |>
+  mutate(Other = if_else(race_ethnicity == "5",true = 1,false = 0)) |>
+  mutate(twin =  case_when(rel_relationship == 0 ~ -0.5,
+                           rel_relationship == 1 ~ -0.5,
+                           rel_relationship == 2 ~ 0.5,
+                           rel_relationship == 3 ~ 0.5,
+                           TRUE ~ NA_real_)) |>
+  distinct(src_subject_id,.keep_all = TRUE) 
+
+#colSums(is.na(family))  #0
+```
+
+
+### site_id_l: 'site' at each event
+```{r}
+#import data2(abcd_y_lt)
+abcd_y_lt = read_csv("data_abcd5/abcd_y_lt.csv")
+
+site = abcd_y_lt |>
+  #filter(eventname == "baseline_year_1_arm_1") |>
+  distinct(.keep_all = TRUE) |>
+  select(src_subject_id,
+         site_id_l,
+         eventname) |>
+  rename(site = site_id_l)
+
+random = left_join(site, family,
+                   by = "src_subject_id") 
+random = random |> 
+  filter(eventname %in% c("baseline_year_1_arm_1", 
+                          "1_year_follow_up_y_arm_1", 
+                          "2_year_follow_up_y_arm_1", 
+                          "4_year_follow_up_y_arm_1"))
+
+#summary(random)
+#colSums(is.na(random)) #10;b2
+#colSums(is.na(random[, c("site")]))
+# unique(random$eventname)
+# b6 1 18 2 30 3 42 4
+#unique(pdem$eventname)
+#Clean up data that are no longer needed
+#rm(list=c("abcd_y_lt", "family", "site"))
+```
+
+### education, income, sex, interview_age, interview_date
+
+'demo_prim':	You are the: Usted es: 1 = Childs Biological Mother La madre biol√≥gica del ni√±o / de la ni√±a; 2 = Childs Biological Father El padre biol√≥gico del ni√±o / de la ni√±a; 3 = Adoptive Parent Padre o madre adoptivo(a); 4 = Childs Custodial Parent El padre o la madre que tiene la custodia del ni√±o / de la ni√±a; 5 = Other Otro
+
+'demo_prnt_ed_v2': What is the highest grade or level of school you have completed or the highest degree you have received? ¬øCu√°l es su m√°ximo nivel de estudios completados o el m√°ximo t√≠tulo que ha recibido?	0 = Never attended/Kindergarten only Nunca asist√É¬≠/Kinder solamente; 1 = 1st grade 1.er grado ; 2 = 2nd grade 2.√Ç¬∫ grado ; 3 = 3rd grade 3.er grado ; 4 = 4th grade 4.√Ç¬∫ grado ; 5 = 5th grade 5.√Ç¬∫ grado ; 6 = 6th grade 6.√Ç¬∫ grado ; 7 = 7th grade 7.√Ç¬∫ grado ; 8 = 8th grade 8.√Ç¬∫ grado ; 9 = 9th grade 9.√Ç¬∫ grado ; 10 = 10th grade 10.√Ç¬∫ grado ; 11 = 11th grade 11.√Ç¬∫ grado ; 12 = 12th grade; 13 = High school graduate Preparatoria terminada ; 14 = GED or equivalent Diploma General de Equivalencia (GED) o equivalente ; 15 = Some college; 16 = Associate degree: Occupational; 17 = Associate degree: Academic Program T√É¬≠tulo de asociado: programa acad√É¬©mico ; 18 = Bachelor's degree (ex. BA; 19 = Master's degree (ex. MA; 20 = Professional School degree (ex. MD; 21 = Doctoral degree (ex. PhD; 777 = Refused to answer Prefiero no responder // The following questions are about your partner. Your "partner" refers to any significant figure in your life that helps you in raising your child or has helped you for more than 2 years. This person should be involved 40% or more of the daily activities your child does. For example, your partner could be your spouse. However, your partner could also be your boyfriend/girlfriend or relative.	
+
+```{r}
+# import data3
+# Covariates
+demo = read_csv("data_abcd5/abcd_p_demo.csv") |> 
+  #filter(eventname == "baseline_year_1_arm_1") |>
+  select(src_subject_id,
+         eventname,
+         demo_prim,
+         demo_prnt_ed_v2,
+         demo_prtnr_ed_v2,
+         demo_comb_income_v2,
+         demo_sex_v2) |> 
+  mutate(across(starts_with("demo"), ~ if_else(is.na(.), first(.[!is.na(.)]), .))) |> 
+  ungroup() |> 
+  distinct(.keep_all = TRUE)
+  
+#colSums(is.na(demo))
+
+lt = read_csv("data_abcd5/abcd_y_lt.csv") |>
+  #filter(eventname == "baseline_year_1_arm_1") |>
+  select(src_subject_id,
+         eventname,
+         interview_age,
+         interview_date) |> 
+  mutate(across(starts_with("interview"), ~ if_else(is.na(.), first(.[!is.na(.)]), .))) |> 
+  ungroup() |> 
+  distinct(.keep_all = TRUE) |> 
+  filter(eventname %in% c("baseline_year_1_arm_1", 
+                          "1_year_follow_up_y_arm_1", 
+                          "2_year_follow_up_y_arm_1", 
+                          "4_year_follow_up_y_arm_1"))
+
+#colSums(is.na(lt))
+
+pdem = demo |> 
+  full_join(lt, by = c("src_subject_id", "eventname")) |> 
+  mutate(
+    eventname = factor(eventname,
+                       levels = c(
+                       "baseline_year_1_arm_1",
+                       "1_year_follow_up_y_arm_1",
+                       "2_year_follow_up_y_arm_1",
+                       "3_year_follow_up_y_arm_1",
+                       "4_year_follow_up_y_arm_1"))
+    )|> 
+  arrange(src_subject_id, eventname) |> 
+  mutate(across(starts_with("demo"), ~ if_else(is.na(.), first(.[!is.na(.)]), .))) |> 
+  ungroup()
+
+pdem = pdem |> 
+  mutate(education_mother = case_when(demo_prim==1 ~ demo_prnt_ed_v2,
+                                      demo_prim==2 ~ demo_prtnr_ed_v2,
+                                      TRUE ~ NA_integer_)) |>
+  mutate(education_father = case_when(demo_prim==2 ~ demo_prnt_ed_v2,
+                                      demo_prim==1 ~ demo_prtnr_ed_v2,
+                                      TRUE ~ NA_integer_)) |>
+  mutate(education_mother = case_when(education_mother == 777 ~ NA_real_,
+                                      education_mother == 21 | education_mother == 20 ~ 20,
+                                      education_mother == 19 ~ 18,
+                                      education_mother == 18 ~ 16,
+                                      education_mother >= 15 ~ 14,
+                                      education_mother >= 12 ~ 12,
+                                      TRUE ~ as.numeric(education_mother))) |>
+  mutate(education_father = case_when(education_father == 777 ~ NA_real_,
+                                      education_father == 21 | education_father == 20 ~ 20,
+                                      education_father == 19 ~ 18,
+                                      education_father == 18 ~ 16,
+                                      education_father >= 15 ~ 14,
+                                      education_father >= 12 ~ 12,
+                                      TRUE ~ as.numeric(education_father))) |>
+  mutate(income = case_when(demo_comb_income_v2 <= 6 ~ 1,
+                            demo_comb_income_v2 <= 7 ~ 2,
+                            demo_comb_income_v2 <= 8 ~ 3,
+                            demo_comb_income_v2 <= 9 ~ 4,
+                            demo_comb_income_v2 == 10 ~ 5,
+                            TRUE ~ NA_real_)) |>
+  mutate(sex = case_when(demo_sex_v2 %in% c(1, 3) ~ -0.5,
+                         demo_sex_v2 %in% c(2, 4) ~ 0.5,
+                         TRUE ~ NA_real_)) |>
+  select(src_subject_id,
+         eventname,
+         education_mother,
+         education_father,
+         income,
+         sex,
+         interview_age,
+         interview_date)
+
+# combine education_mother and education_father
+pdem = pdem |> 
+  mutate(education = case_when(
+    !is.na(education_mother) & !is.na(education_father) ~ (education_mother + education_father) / 2,  # average
+    !is.na(education_mother) ~ education_mother,  # mother
+    !is.na(education_father) ~ education_father,  # father
+    TRUE ~ NA_real_  # both NA
+  )) |> 
+  select(-education_father, -education_mother)
+
+#Convert implementation date
+pdem$interview_date = as.Date(pdem$interview_date,format = "%m/%d/%Y") 
+
+pdem = pdem |>
+  group_by(src_subject_id) |>
+  mutate(income = if_else(is.na(income), 
+                        first(income[!is.na(income)]),  
+                        income),
+         education = if_else(is.na(education), 
+                        first(education[!is.na(education)]), 
+                        education)) |> 
+  ungroup()
+# |> drop_na()
+
+#colSums(is.na(pdem))
+
+pdem = pdem |> 
+  distinct(.keep_all = TRUE) |> 
+  filter(eventname %in% c("baseline_year_1_arm_1", 
+                          "1_year_follow_up_y_arm_1", 
+                          "2_year_follow_up_y_arm_1", 
+                          "4_year_follow_up_y_arm_1"))
+
+colSums(is.na(pdem)) 
+# income 52
+# education 26
+```
+
+
+```{r, echo = FALSE}
+# import data4
+# mh_p_fhx = read_csv("data_abcd5/mh_p_fhx.csv")
+# 
+# famihis_summary = mh_p_fhx |> 
+#   #filter(eventname == "baseline_year_1_arm_1") |>
+#   select(src_subject_id,
+#          eventname,
+#          contains("parent")) |>
+#   mutate_if(is.integer, ~ case_when(.==0~0,
+#                                     .!=0~1)) |>
+#   distinct(src_subject_id,.keep_all = TRUE)
+# 
+# covariate = left_join(pdem, famihis_summary,
+#                        by="src_subject_id") |>
+#   filter(src_subject_id!="") |>
+#   select(-eventname.y) |>
+#   rename(eventname = eventname.x)
+
+#rm(list=c("pdem","famihis_summary"))
+
+
+# import data5
+# CBCl parient
+# outcome
+# mh_p_cbcl = read_csv("data_abcd5/mh_p_cbcl.csv")
+# 
+# numeric = mh_p_cbcl |>
+#   #filter(eventname == "baseline_year_1_arm_1")|>
+#   select(contains("cbcl")) |>
+#   select(ends_with("_t")) |>
+#   mutate_if(is.character,as.numeric)
+# 
+# char=mh_p_cbcl |>
+#   #filter(eventname == "baseline_year_1_arm_1")|>
+#   dplyr::select(src_subject_id,
+#                 eventname)
+# cbcl = cbind(char,numeric)
+# 
+# cbcl = full_join(cbcl, lt |>
+#                   select(src_subject_id, eventname, interview_age, interview_date),
+#                   by = c("src_subject_id", "eventname")) |>
+#   rename(interview_age_cbcl = interview_age)
+# cbcl$interview_date = as.Date(cbcl$interview_date,format = "%m/%d/%Y") #Convert implementation date
+# 
+# data_full = cbcl |>
+#   rename(totprob = cbcl_scr_syn_totprob_t,
+#          internal = cbcl_scr_syn_internal_t,
+#          external = cbcl_scr_syn_external_t,
+#          withdep = cbcl_scr_syn_withdep_t,
+#          somatic = cbcl_scr_syn_somatic_t,
+#          social = cbcl_scr_syn_social_t,
+#          thought = cbcl_scr_syn_thought_t,
+#          attention = cbcl_scr_syn_attention_t,
+#          rulebreak = cbcl_scr_syn_rulebreak_t,
+#          aggressive = cbcl_scr_syn_aggressive_t,
+#          anxdep = cbcl_scr_syn_anxdep_t,
+#          subjectkey = src_subject_id)
+
+#write.csv(data_full, "data_full.csv", row.names = FALSE)
+#rm(list=c("char","numeric"))
+
+
+#Verify implementation date
+# cbcl |> 
+#   ggplot(aes(x=interview_date,fill=eventname))  +
+#   stat_bin(binwidth = 10,alpha=0.5,position = "identity")
+
+# data = cbcl |> 
+#   #left_join(cbcl, date, by="src_subject_id") |>
+#   #filter(eventname == "baseline_year_1_arm_1") |>
+#   rename(totprob = cbcl_scr_syn_totprob_t,
+#          internal = cbcl_scr_syn_internal_t,
+#          external = cbcl_scr_syn_external_t,
+#          withdep = cbcl_scr_syn_withdep_t,
+#          somatic = cbcl_scr_syn_somatic_t,
+#          social = cbcl_scr_syn_social_t,
+#          thought = cbcl_scr_syn_thought_t,
+#          attention = cbcl_scr_syn_attention_t,
+#          rulebreak = cbcl_scr_syn_rulebreak_t,
+#          aggressive = cbcl_scr_syn_aggressive_t,
+#          anxdep = cbcl_scr_syn_anxdep_t) |>
+#   left_join(covariate, by = c("src_subject_id", "eventname")) |>
+#   left_join(random, by = c("src_subject_id", "eventname")) |>
+#   left_join(data_ss, by = c("src_subject_id", "eventname")) |>
+#   left_join(data_ph, by = c("src_subject_id", "eventname")) |>
+#   select(-interview_date.y) |>
+#   rename(interview_date = interview_date.x)
+```
+
+
+```{r, echo = FALSE}
+# import data6
+# ce_y_pm = read_csv("data_abcd5/ce_y_pm.csv")
+# 
+# # PMQ (Parent Monitoring Questionnaire)
+# pmq_2year = ce_y_pm |> 
+#   filter(eventname == "baseline_year_1_arm_1") |>
+#   mutate(PMQ_ave = (parent_monitor_q1_y+parent_monitor_q2_y+parent_monitor_q3_y+parent_monitor_q4_y+parent_monitor_q5_y)/5) |>
+#   filter(eventname == "3_year_follow_up_y_arm_1") |>
+#   distinct(src_subject_id,.keep_all = TRUE) |>
+#     mutate(PMQ = PMQ_ave-mean(PMQ_ave,na.rm = TRUE)) |>
+#   mutate(PMQ_low = PMQ - (mean(PMQ,na.rm = TRUE)-sd(PMQ,na.rm = TRUE)),
+#          PMQ_high = PMQ - (mean(PMQ,na.rm = TRUE)+sd(PMQ,na.rm = TRUE))) |>
+#   mutate(parent_monitor_q1_c = parent_monitor_q1_y-mean(parent_monitor_q1_y,na.rm=TRUE),
+#          parent_monitor_q2_c = parent_monitor_q2_y-mean(parent_monitor_q2_y,na.rm=TRUE),
+#          parent_monitor_q3_c = parent_monitor_q3_y-mean(parent_monitor_q3_y,na.rm=TRUE),
+#          parent_monitor_q4_c = parent_monitor_q4_y-mean(parent_monitor_q4_y,na.rm=TRUE),
+#          parent_monitor_q5_c = parent_monitor_q5_y-mean(parent_monitor_q5_y,na.rm=TRUE)) |>
+#   select(src_subject_id, contains(c("PMQ","_c")))
+# 
+# data = left_join(data, pmq_2year,
+#                  by="src_subject_id") 
+# |>
+#   drop_na()
+
+#colSums((is.na(data)))
+```
+
+```{r}
+# data ACES
+abcd_aces_2024 = read_csv("abcd_aces_2024.csv") |> 
+  arrange(src_subject_id)
+
+#rm(list=c("mh_y_ksads_ss", "abcd_p_demo", "abcd_y_lt", "gen_y_pihat", "ph_y_yrb", "family", "demo", "site", "lt"))
+
+# combine covariate data
+data_cov = pdem |>
+  full_join(random, by = c("src_subject_id", "eventname")) |> 
+  full_join(abcd_aces_2024, by = c("src_subject_id", "eventname")) 
+
+colSums(is.na(data_cov))
+# income:52
+# education:26
+
+data = data |>
+  full_join(data_cov, by = c("src_subject_id", "eventname")) |> 
+  mutate(across(c(suicide_attempt, 
+                  physical_activity1_y, 
+                  sex, income, education,
+                  race_ethnicity, White, Black, Hispanic, Asian, Other, twin, site,
+                  family, rel_relationship,
+                  starts_with("aces")), 
+                ~ if_else(is.na(.), first(.[!is.na(.)]), .))) |>
+  ungroup() |> 
+  distinct(.keep_all = TRUE) |> 
+  janitor::clean_names()
+
+colSums(is.na(data))
+# interview_age             interview_date 
+#         10326                      10326 
+
+data = data |> 
+  select(-c("aces1", "aces2", "aces3", "aces4", "aces5", 
+            "aces6", "aces7", "aces8", "aces9", "aces10", 
+            "aces11", "aces12", "aces13", "aces14", 
+            "aces15", "aces16", "aces19", "aces20", "aces21"),
+         -aces17_prep_1y, -aces17_all_prep, -aces17_all, -aces_17_onlyparents, -aces18_all, -aces_18_onlyparents, -dadosperdidos) |> 
+  rename(physical_activity = physical_activity1_y)
+
+colnames(data)
+
+# save data
+write.csv(data, file = "data_prac.csv", row.names = FALSE)
+table(data$eventname)
+```
+
+
+# truma--aces
+1.aces_numeric;
+2.aces_cat:
+   0-1aces: total score 0-1(including 1);
+   2-3aces: total score 2-3(including 3);
+   4+aces: total score >3
+3.Dummy Classified variables
+   0-3aces;
+   4+aces;
+4.aces_classic_numeric: excluding aces5, aces7
+5.aces_classic_cat
+
+
+idiation variabke
+
+
+
+
+
+
